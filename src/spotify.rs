@@ -32,7 +32,7 @@ impl crate::App for Spotify {
         let res = self
             .client
             .post(format!(
-                "{}/grant_type=authorization_code&code={}&client_id={}&client_secret={}",
+                "{}?grant_type=client_credentials&code={}&client_id={}&client_secret={}",
                 TOKEN_URL,
                 CODE.get().unwrap().read().await,
                 id,
@@ -46,6 +46,7 @@ impl crate::App for Spotify {
                 ),
             )
             .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Content-Length", "0")
             .send()
             .await
             .map_err(|err| format!("Failed to send Spotify token request: {err}"))?;

@@ -2,8 +2,11 @@ mod deezer;
 mod server;
 mod spotify;
 
+use std::time::Duration;
+
 use dotenv::dotenv;
 use loading::Loading;
+use tokio::time::sleep;
 
 use crate::deezer::Deezer;
 use crate::server::Server;
@@ -85,7 +88,7 @@ async fn main() {
         }
 
         timeout += 1;
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        sleep(Duration::from_secs(10)).await;
     }
 
     match spotify.fetch_token().await {
