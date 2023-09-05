@@ -1,27 +1,98 @@
-use std::sync::{Arc, OnceLock};
+use std::{
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
+use loading::Loading;
 use reqwest::Client;
-use tokio::sync::RwLock;
+use serde_json::json;
+use tokio::{sync::RwLock, time::sleep};
 
+const TOKEN_URL: &str = "https://connect.deezer.com/oauth/access_token.php";
 const REDIRECT_URI: &str = "http://localhost:8080/Deezer";
 const PERMS: [&str; 2] = ["basic_access", "manage_library"];
 
 pub static CODE: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
 
-#[derive(Debug, Default)]
-pub struct Deezer {
+#[derive(Debug)]
+pub struct Deezer<'app> {
     pub email: String,
     pub password: String,
-    client: Client,
+    client: &'app Client,
     access_token: String,
 }
 
 #[async_trait::async_trait]
-impl crate::App for Deezer {
+impl<'app> crate::App for Deezer<'app> {
     type Error = String;
 
+    async fn init(&mut self) {
+        println!("{}", Deezer::get_auth_url());
+
+        let deez_load = Loading::default();
+        deez_load.text(String::from("Please sign in to Deezer with the link above"));
+
+        let mut timeout = 0;
+        while CODE.get().is_none() {
+            if timeout == 12 {
+                deez_load.fail(String::from("[2min timeout] Failed to login to Deezer"));
+                std::process::exit(1);
+            }
+
+            timeout += 1;
+            sleep(Duration::from_secs(10)).await;
+        }
+
+        match self.fetch_token().await {
+            Ok(_) => deez_load.success(String::from("Logged in to Deezer!")),
+            Err(err) => {
+                deez_load.fail(format!("Failed to login Deezer! ({err})"));
+                std::process::exit(1);
+            }
+        }
+
+        deez_load.end();
+    }
+
     async fn fetch_token(&mut self) -> Result<(), Self::Error> {
-        std::thread::sleep(std::time::Duration::from_secs(5));
+        let id = dotenv::var("DEEZER_APP_ID")
+            .map_err(|err| format!("Failed to get Deezer app ID from env: {err}"))?;
+        let secret = dotenv::var("DEEZER_SECRET_KEY")
+            .map_err(|err| format!("Failed to get Deezer client SECRET from env: {err}"))?;
+
+        let res = self
+            .client
+            .post(format!(
+                "{}?app_id={}&secret={}&code={}&output=json",
+                TOKEN_URL,
+                id,
+                secret,
+                CODE.get().unwrap().read().await
+            ))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Content-Length", "0")
+            .send()
+            .await
+            .map_err(|err| format!("Failed to send Deezer token request: {err}"))?;
+
+        if !res.status().is_success() {
+            return Err(format!(
+                "Failed to fetch Deezer token: ({}) {:?}",
+                res.status(),
+                res.text().await
+            ));
+        }
+
+        let body: serde_json::Value = res
+            .json()
+            .await
+            .map_err(|err| format!("Failed to get Deezer token json result: {err}"))?;
+
+        self.access_token = body["access_token"]
+            .as_str()
+            .ok_or_else(|| format!("Failed to get Deezer access token from json result: {body}"))?
+            .to_owned();
+
         Ok(())
     }
 
@@ -38,10 +109,47 @@ impl crate::App for Deezer {
     }
 }
 
-impl Deezer {
-    pub fn get_playlists(&self) -> Result<Vec<serde_json::Value>, <Self as crate::App>::Error> {
-        let mut playlists = Vec::new();
+impl<'app> Deezer<'app> {
+    pub fn new(client: &'app Client) -> Self {
+        Self {
+            email: String::new(),
+            password: String::new(),
+            client,
+            access_token: String::new(),
+        }
+    }
 
-        Ok(playlists)
+    pub async fn get_playlists(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, <Deezer<'app> as crate::App>::Error> {
+        let res = self
+            .client
+            .get(format!(
+                "https://api.deezer.com/user/me/playlists?output=json&access_token={}",
+                self.access_token
+            ))
+            .send()
+            .await
+            .map_err(|err| format!("Failed to send Deezer playlists request: {err}"))?;
+
+        if !res.status().is_success() {
+            return Err(format!(
+                "Failed to fetch Deezer playlists: ({}) {:?}",
+                res.status(),
+                res.text().await
+            ));
+        }
+
+        let body: serde_json::Value = res
+            .json()
+            .await
+            .map_err(|err| format!("Failed to get Deezer playlists json result: {err}"))?;
+
+        Ok(body
+            .get("data")
+            .unwrap_or(&json!([]))
+            .as_array()
+            .unwrap()
+            .to_owned())
     }
 }

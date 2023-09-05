@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
-    sync::RwLock,
+    sync::{Mutex, RwLock},
 };
 
 use crate::deezer::CODE as DEEZER_CODE;
@@ -14,10 +14,10 @@ const SOCKET: &str = "127.0.0.1:8080";
 pub struct Server;
 
 impl Server {
-    pub async fn run(&self) {
+    pub async fn run() {
         let listener = TcpListener::bind(SOCKET).await.unwrap();
-        let s = Arc::new(RwLock::new(false));
-        let d = Arc::new(RwLock::new(false));
+        let s = Arc::new(Mutex::new(false));
+        let d = Arc::new(Mutex::new(false));
 
         tokio::spawn(async move {
             let s = Arc::clone(&s);
@@ -42,7 +42,7 @@ impl Server {
 
                             SPOTIFY_CODE.get_or_init(|| Arc::new(RwLock::new(code)));
 
-                            let mut s = s.write().await;
+                            let mut s = s.lock().await;
                             *s = true;
 
                             break;
@@ -56,13 +56,8 @@ impl Server {
 
                             DEEZER_CODE.get_or_init(|| Arc::new(RwLock::new(code)));
 
-                            let mut d = d.write().await;
+                            let mut d = d.lock().await;
                             *d = true;
-
-                            let response = "HTTP/1.1 200 OK\r\nContent-Length: 45\r\n\r\nYou're connected to Spotify, you can close this tab now!";
-                            if let Err(err) = stream.write_all(response.as_bytes()).await {
-                                eprintln!("Error writing response: {}", err);
-                            }
 
                             break;
                         }
@@ -75,7 +70,7 @@ impl Server {
                 }
 
                 // Both apps are connected, closing server
-                if *s.read().await && *d.read().await {
+                if *s.lock().await && *d.lock().await {
                     break;
                 }
             }

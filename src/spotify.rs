@@ -1,8 +1,12 @@
-use std::sync::{Arc, OnceLock};
+use std::{
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 use base64::{engine::general_purpose, Engine as _};
+use loading::Loading;
 use reqwest::Client;
-use tokio::sync::RwLock;
+use tokio::{sync::RwLock, time::sleep};
 
 const TOKEN_URL: &str = "https://accounts.spotify.com/api/token";
 const SCOPES: [&str; 2] = ["playlist-modify-private", "playlist-modify-public"];
@@ -10,17 +14,47 @@ const REDIRECT_URI: &str = "http://localhost:8080/Spotify";
 
 pub static CODE: OnceLock<Arc<RwLock<String>>> = OnceLock::new();
 
-#[derive(Debug, Default)]
-pub struct Spotify {
+#[derive(Debug)]
+pub struct Spotify<'app> {
     pub email: String,
     pub password: String,
-    client: Client,
+    client: &'app Client,
     access_token: String,
 }
 
 #[async_trait::async_trait]
-impl crate::App for Spotify {
+impl<'app> crate::App for Spotify<'app> {
     type Error = String;
+
+    async fn init(&mut self) {
+        println!("{}", Spotify::get_auth_url());
+
+        let spot_load = Loading::default();
+        spot_load.text(String::from(
+            "Please sign in to Spotify with the link above",
+        ));
+
+        let mut timeout = 0;
+        while CODE.get().is_none() {
+            if timeout == 12 {
+                spot_load.fail(String::from("[2min timeout] Failed to login to Spotify"));
+                std::process::exit(1);
+            }
+
+            timeout += 1;
+            sleep(Duration::from_secs(10)).await;
+        }
+
+        match self.fetch_token().await {
+            Ok(_) => spot_load.success(String::from("Logged in to Spotify!")),
+            Err(err) => {
+                spot_load.fail(format!("Failed to login to Spotify ({err})"));
+                std::process::exit(1);
+            }
+        }
+
+        spot_load.end();
+    }
 
     // Keep in mind that, if you wanna use this, you need to handle the refresh token (every 60 minutes, the access token expires)
     async fn fetch_token(&mut self) -> Result<(), Self::Error> {
@@ -82,5 +116,20 @@ impl crate::App for Spotify {
             "https://accounts.spotify.com/authorize?client_id={}&response_type=code&show_dialog=true&redirect_uri={}&scope={}",
             id, REDIRECT_URI, scopes
         )
+    }
+}
+
+impl<'app> Spotify<'app> {
+    pub fn new(client: &'app Client) -> Self {
+        Self {
+            email: String::new(),
+            password: String::new(),
+            client,
+            access_token: String::new(),
+        }
+    }
+
+    pub fn create_playlist() -> Result<(), <Spotify<'app> as crate::App>::Error> {
+        Ok(())
     }
 }
