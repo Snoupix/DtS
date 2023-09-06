@@ -145,6 +145,7 @@ dependencies = [
  "loading",
  "reqwest",
  "scanpw",
+ "serde",
  "serde_json",
  "tokio",
 ]

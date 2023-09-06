@@ -5,6 +5,7 @@ use std::{
 
 use loading::Loading;
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::{sync::RwLock, time::sleep};
 
@@ -20,6 +21,29 @@ pub struct Deezer<'app> {
     pub password: String,
     client: &'app Client,
     access_token: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct DeezerPlaylistResponse {
+    data: Vec<DeezerPlaylist>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DeezerPlaylist {
+    pub title: String,
+    pub tracks: Vec<DeezerTrack>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DeezerTrack {
+    pub title: String,
+    pub artist_name: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct DeezerUser {
+    id: i64,
+    name: String,
 }
 
 #[async_trait::async_trait]
@@ -119,9 +143,78 @@ impl<'app> Deezer<'app> {
         }
     }
 
+    async fn get_me(&self) -> Result<DeezerUser, <Deezer<'app> as crate::App>::Error> {
+        let res = self
+            .client
+            .get(format!(
+                "https://api.deezer.com/user/me?output=json&access_token={}",
+                self.access_token
+            ))
+            .send()
+            .await
+            .map_err(|err| format!("Failed to send Deezer me request: {err}"))?;
+
+        if !res.status().is_success() {
+            return Err(format!(
+                "Failed to fetch Deezer me: ({}) {:?}",
+                res.status(),
+                res.text().await
+            ));
+        }
+
+        let body: serde_json::Value = res
+            .json()
+            .await
+            .map_err(|err| format!("Failed to get Deezer me json result: {err}"))?;
+
+        Ok(DeezerUser {
+            id: body["id"].as_i64().unwrap(),
+            name: body["name"].as_str().unwrap().to_owned(),
+        })
+    }
+
+    async fn get_playlist_tracks(
+        &self,
+        id: i64,
+    ) -> Result<Vec<DeezerTrack>, <Deezer<'app> as crate::App>::Error> {
+        let res = self
+            .client
+            .get(format!(
+                "https://api.deezer.com/playlist/{}/tracks?output=json&access_token={}",
+                id, self.access_token
+            ))
+            .send()
+            .await
+            .map_err(|err| format!("Failed to send Deezer playlist tracks request: {err}"))?;
+
+        if !res.status().is_success() {
+            return Err(format!(
+                "Failed to fetch Deezer playlist tracks: ({}) {:?}",
+                res.status(),
+                res.text().await
+            ));
+        }
+
+        let body: serde_json::Value = res
+            .json()
+            .await
+            .map_err(|err| format!("Failed to get Deezer playlist tracks json result: {err}"))?;
+
+        let mut v = Vec::new();
+
+        for track in body.get("data").unwrap_or(&json!([])).as_array().unwrap() {
+            v.push(DeezerTrack {
+                title: track["title"].as_str().unwrap().to_owned(),
+                artist_name: track["artist"]["name"].as_str().unwrap().to_owned(),
+            })
+        }
+
+        Ok(v)
+    }
+
     pub async fn get_playlists(
         &self,
-    ) -> Result<Vec<serde_json::Value>, <Deezer<'app> as crate::App>::Error> {
+    ) -> Result<Vec<DeezerPlaylist>, <Deezer<'app> as crate::App>::Error> {
         let res = self
             .client
             .get(format!(
@@ -145,11 +238,27 @@ impl<'app> Deezer<'app> {
             .await
             .map_err(|err| format!("Failed to get Deezer playlists json result: {err}"))?;
 
-        Ok(body
-            .get("data")
-            .unwrap_or(&json!([]))
-            .as_array()
-            .unwrap()
-            .to_owned())
+        let owner = self.get_me().await.unwrap();
+
+        let mut v = Vec::new();
+
+        for playlist in body.get("data").unwrap_or(&json!([])).as_array().unwrap() {
+            if playlist["type"].as_str().unwrap() != "playlist"
+                || playlist["is_loved_track"].as_bool().unwrap()
+                || playlist["creator"]["id"].as_i64().unwrap() != owner.id
+            {
+                continue;
+            }
+
+            v.push(DeezerPlaylist {
+                title: playlist["title"].as_str().unwrap().to_owned(),
+                tracks: self
+                    .get_playlist_tracks(playlist["id"].as_i64().unwrap().to_owned())
+                    .await
+                    .unwrap(),
+            })
+        }
+
+        Ok(v)
     }
 }

@@ -2,12 +2,9 @@ mod deezer;
 mod server;
 mod spotify;
 
-use std::time::Duration;
-
 use dotenv::dotenv;
 use loading::Loading;
 use reqwest::Client;
-use tokio::time::sleep;
 
 use crate::deezer::Deezer;
 use crate::server::Server;
@@ -35,9 +32,18 @@ async fn main() {
     Server::run().await;
 
     deezer.init().await;
-    // spotify.init().await;
+    spotify.init().await;
 
-    let playlists = deezer.get_playlists().await.unwrap();
+    let loader = Loading::default();
+    loader.text("Importing your Deezer playlists to Spotify...");
 
-    println!("{:?}", playlists);
+    let deez_playlists = deezer.get_playlists().await.unwrap();
+    let new_playlists = spotify
+        .get_tracks_from_deezer(deez_playlists)
+        .await
+        .unwrap();
+    spotify.create_playlists(new_playlists).await.unwrap();
+
+    loader.success("Your Deezer playlists are now imported to Spotify!");
+    loader.end();
 }
