@@ -58,13 +58,13 @@ impl<'app> crate::App for Deezer<'app> {
 
         let mut timeout = 0;
         while CODE.get().is_none() {
-            if timeout == 12 {
+            if timeout == 60 {
                 deez_load.fail(String::from("[2min timeout] Failed to login to Deezer"));
                 std::process::exit(1);
             }
 
             timeout += 1;
-            sleep(Duration::from_secs(10)).await;
+            sleep(Duration::from_secs(2)).await;
         }
 
         match self.fetch_token().await {

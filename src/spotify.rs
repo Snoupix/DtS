@@ -14,10 +14,10 @@ use crate::deezer::DeezerPlaylist;
 
 const TOKEN_URL: &str = "https://accounts.spotify.com/api/token";
 const SCOPES: [&str; 4] = [
-    "playlist-modify-private",
-    "playlist-modify-public",
     "user-read-email",
     "user-read-private",
+    "playlist-modify-private",
+    "playlist-modify-public",
 ];
 const REDIRECT_URI: &str = "http://localhost:8080/Spotify";
 
@@ -58,13 +58,13 @@ impl<'app> crate::App for Spotify<'app> {
 
         let mut timeout = 0;
         while CODE.get().is_none() {
-            if timeout == 12 {
+            if timeout == 60 {
                 spot_load.fail(String::from("[2min timeout] Failed to login to Spotify"));
                 std::process::exit(1);
             }
 
             timeout += 1;
-            sleep(Duration::from_secs(10)).await;
+            sleep(Duration::from_secs(2)).await;
         }
 
         match self.fetch_token().await {
@@ -88,11 +88,12 @@ impl<'app> crate::App for Spotify<'app> {
         let res = self
             .client
             .post(format!(
-                "{}?grant_type=client_credentials&code={}&client_id={}&client_secret={}",
+                "{}?grant_type=authorization_code&code={}&client_id={}&client_secret={}&redirect_uri={}",
                 TOKEN_URL,
                 CODE.get().unwrap().read().await,
                 id,
-                secret
+                secret,
+                REDIRECT_URI
             ))
             .header(
                 "Authorization",
@@ -216,7 +217,7 @@ impl<'app> Spotify<'app> {
         Ok(p)
     }
 
-    async fn get_my_id(&self) -> Result<String, <Spotify<'app> as crate::App>::Error> {
+    pub async fn get_my_id(&self) -> Result<String, <Spotify<'app> as crate::App>::Error> {
         let res = self
             .client
             .get("https://api.spotify.com/v1/me")
@@ -252,6 +253,11 @@ impl<'app> Spotify<'app> {
                 .client
                 .post(format!("https://api.spotify.com/v1/users/{id}/playlists"))
                 .header("Authorization", format!("Bearer {}", self.access_token))
+                .json(&json!({
+                    "name": playlist.title,
+                    "description": "",
+                    "public": false
+                }))
                 .send()
                 .await
                 .map_err(|err| {
