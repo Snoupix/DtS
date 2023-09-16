@@ -58,8 +58,8 @@ impl<'app> crate::App for Deezer<'app> {
 
         let mut timeout = 0;
         while CODE.get().is_none() {
-            if timeout == 60 {
-                deez_load.fail(String::from("[2min timeout] Failed to login to Deezer"));
+            if timeout == 150 {
+                deez_load.fail(String::from("[5min timeout] Failed to login to Deezer"));
                 std::process::exit(1);
             }
 

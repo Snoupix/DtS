@@ -58,8 +58,8 @@ impl<'app> crate::App for Spotify<'app> {
 
         let mut timeout = 0;
         while CODE.get().is_none() {
-            if timeout == 60 {
-                spot_load.fail(String::from("[2min timeout] Failed to login to Spotify"));
+            if timeout == 150 {
+                spot_load.fail(String::from("[5min timeout] Failed to login to Spotify"));
                 std::process::exit(1);
             }
 
