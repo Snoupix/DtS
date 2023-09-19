@@ -11,6 +11,7 @@ use serde_json::json;
 use tokio::{sync::RwLock, time::sleep};
 
 use crate::deezer::DeezerPlaylist;
+use crate::logger::{log, LogCategory};
 
 const TOKEN_URL: &str = "https://accounts.spotify.com/api/token";
 const SCOPES: [&str; 4] = [
@@ -164,6 +165,13 @@ impl<'app> Spotify<'app> {
                 tracks: Vec::new(),
             };
 
+            log!(
+                "Spotify",
+                LogCategory::Info,
+                "Fetching playlist \"{}\" tracks",
+                playlist.title
+            );
+
             for track in playlist.tracks {
                 let res = self
                     .client
@@ -193,24 +201,38 @@ impl<'app> Spotify<'app> {
                 let items_found = body["tracks"]["items"].as_array();
 
                 if items_found.is_none() {
-                    println!(
-                        "Track not found on Spotify: {} - {} for playlist: {}",
-                        track.title, track.artist_name, playlist.title
+                    log!(
+                        "Spotify",
+                        LogCategory::Info,
+                        "Track not found on Spotify: {} by {}",
+                        track.title,
+                        track.artist_name
                     );
-                    println!("DEBUG: {:#?}", body);
+                    // println!("DEBUG: {:#?}", body);
                     continue;
                 }
 
                 for item in items_found.unwrap() {
                     if item["type"].as_str().is_some_and(|t| t == "track") {
-                        curr_playlist.tracks.push(SpotifyTrack {
+                        let found_track = SpotifyTrack {
                             id: item["id"].as_str().unwrap().to_owned(),
                             title: item["name"].as_str().unwrap().to_owned(),
                             artist_name: item["artists"][0]["name"].as_str().unwrap().to_owned(),
-                        });
+                        };
+
+                        log!(
+                            "Spotify",
+                            LogCategory::Info,
+                            "| Found track \"{}\" by \"{}\" on Spotify",
+                            found_track.title,
+                            found_track.artist_name
+                        );
+
+                        curr_playlist.tracks.push(found_track);
                     }
                 }
             }
+
             p.push(curr_playlist);
         }
 
@@ -309,6 +331,13 @@ impl<'app> Spotify<'app> {
                     res.text().await
                 ));
             }
+
+            log!(
+                "Spotify",
+                LogCategory::Success,
+                "Created playlist \"{}\"",
+                playlist.title
+            );
         }
         Ok(())
     }

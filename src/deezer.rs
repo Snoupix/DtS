@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::{sync::RwLock, time::sleep};
 
+use crate::logger::{log, LogCategory};
+
 const TOKEN_URL: &str = "https://connect.deezer.com/oauth/access_token.php";
 const REDIRECT_URI: &str = "http://localhost:8080/Deezer";
 const PERMS: [&str; 2] = ["basic_access", "manage_library"];
@@ -203,10 +205,16 @@ impl<'app> Deezer<'app> {
         let mut v = Vec::new();
 
         for track in body.get("data").unwrap_or(&json!([])).as_array().unwrap() {
-            v.push(DeezerTrack {
-                title: track["title"].as_str().unwrap().to_owned(),
-                artist_name: track["artist"]["name"].as_str().unwrap().to_owned(),
-            })
+            let title = track["title"].as_str().unwrap().to_owned();
+            let artist_name = track["artist"]["name"].as_str().unwrap().to_owned();
+
+            log!(
+                "Deezer",
+                LogCategory::Info,
+                "| Found track \"{title}\" by \"{artist_name}\""
+            );
+
+            v.push(DeezerTrack { title, artist_name })
         }
 
         Ok(v)
@@ -250,14 +258,25 @@ impl<'app> Deezer<'app> {
                 continue;
             }
 
+            let title = playlist["title"].as_str().unwrap().to_owned();
+
+            log!("Deezer", LogCategory::Info, "Found playlist \"{title}\"");
+
             v.push(DeezerPlaylist {
-                title: playlist["title"].as_str().unwrap().to_owned(),
+                title,
                 tracks: self
                     .get_playlist_tracks(playlist["id"].as_i64().unwrap().to_owned())
                     .await
                     .unwrap(),
             })
         }
+
+        log!(
+            "Deezer",
+            LogCategory::Success,
+            "Found {} Deezer playlist(s)",
+            v.len()
+        );
 
         Ok(v)
     }

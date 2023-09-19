@@ -1,4 +1,5 @@
 mod deezer;
+mod logger;
 mod server;
 mod spotify;
 
